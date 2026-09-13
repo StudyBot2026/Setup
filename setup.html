@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StudyBot Setup Portal</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .card { background: #1e293b; border-radius: 20px; padding: 30px; width: 100%; max-width: 440px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+    h1 { font-size: 26px; color: #38bdf8; margin-bottom: 5px; font-weight: 800; }
+    p.sub { color: #94a3b8; font-size: 14px; margin-bottom: 25px; }
+    .step { margin-bottom: 22px; }
+    label { display: block; font-size: 13px; font-weight: bold; color: #cbd5e1; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 15px; outline: none; margin-bottom: 12px; }
+    select:focus, input:focus { border-color: #38bdf8; }
+    button { width: 100%; padding: 14px; border-radius: 10px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-ble { background: #0284c7; color: white; margin-bottom: 15px; }
+    .btn-ble:hover { background: #0369a1; }
+    .btn-scan { background: #334155; color: #38bdf8; margin-bottom: 12px; }
+    .btn-submit { background: #10b981; color: white; margin-top: 10px; }
+    .btn-submit:disabled { background: #475569; cursor: not-allowed; }
+    #statusBox { margin-top: 20px; padding: 12px; border-radius: 10px; font-size: 14px; text-align: center; display: none; font-weight: bold; }
+    .status-info { background: #1e3a8a; color: #93c5fd; }
+    .status-success { background: #065f46; color: #34d399; }
+    .status-error { background: #7f1d1d; color: #f87171; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>StudyBot Setup</h1>
+  <p class="sub">Bluetooth Provisioning & Mood Calibration</p>
+
+  <!-- Step 1: Connect BLE -->
+  <div class="step">
+    <button class="btn-ble" id="connectBleBtn" onclick="connectBLE()">1. Connect to StudyBot (Bluetooth)</button>
+  </div>
+
+  <!-- Step 2: Wi-Fi Credentials -->
+  <div class="step" id="wifiStep" style="opacity: 0.4; pointer-events: none;">
+    <label>Wi-Fi Network</label>
+    <button class="btn-scan" onclick="scanWifi()">🔍 Scan Nearby Wi-Fi</button>
+    <select id="wifiDropdown">
+      <option value="">-- Select Network --</option>
+    </select>
+    <input type="password" id="wifiPassword" placeholder="Enter Wi-Fi Password">
+
+    <!-- Step 3: Student Mood -->
+    <label style="margin-top: 15px;">Student's Current Mood</label>
+    <select id="moodDropdown">
+      <option value="okay">Neutral / Okay</option>
+      <option value="focused">Motivated & Focused</option>
+      <option value="stressed">Stressed / Exam Anxiety</option>
+      <option value="tired">Exhausted / Low Energy</option>
+    </select>
+
+    <button class="btn-submit" id="submitBtn" onclick="sendCredentials()">2. Send & Connect</button>
+  </div>
+
+  <div id="statusBox"></div>
+</div>
+
+<script>
+  const SERVICE_UUID           = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+  const CHARACTERISTIC_UUID_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Phone writes here
+  const CHARACTERISTIC_UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Phone listens here
+
+  let bleDevice, rxCharacteristic, txCharacteristic;
+
+  function setStatus(msg, type) {
+    const box = document.getElementById("statusBox");
+    box.style.display = "block";
+    box.className = "status-" + type;
+    box.innerHTML = msg;
+  }
+
+  async function connectBLE() {
+    try {
+      setStatus("Pairing with StudyBot_BLE...", "info");
+      bleDevice = await navigator.bluetooth.requestDevice({
+        filters: [{ name: "StudyBot_BLE" }],
+        optionalServices: [SERVICE_UUID]
+      });
+
+      const server = await bleDevice.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      rxCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID_RX);
+      txCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID_TX);
+
+      await txCharacteristic.startNotifications();
+      txCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+      setStatus("Connected to StudyBot via Bluetooth!", "success");
+      document.getElementById("wifiStep").style.opacity = "1";
+      document.getElementById("wifiStep").style.pointerEvents = "auto";
+      document.getElementById("connectBleBtn").innerText = "✓ Bluetooth Connected";
+      document.getElementById("connectBleBtn").style.background = "#10b981";
+    } catch (err) {
+      setStatus("Bluetooth Connection Failed: " + err, "error");
+    }
+  }
+
+  function handleNotifications(event) {
+    const data = new TextDecoder().decode(event.target.value);
+    console.log("[BLE Rx]:", data);
+
+    if (data.startsWith("NETWORKS:")) {
+      const jsonStr = data.replace("NETWORKS:", "");
+      try {
+        const networks = JSON.parse(jsonStr);
+        const dropdown = document.getElementById("wifiDropdown");
+        dropdown.innerHTML = "";
+        networks.forEach(net => {
+          const opt = document.createElement("option");
+          opt.value = net;
+          opt.innerText = net;
+          dropdown.appendChild(opt);
+        });
+        setStatus("Found " + networks.length + " nearby networks!", "success");
+      } catch (e) {
+        console.error("JSON Parse Error", e);
+      }
+    } else if (data.startsWith("STATUS:CONNECTED:")) {
+      const ip = data.split(":")[2];
+      setStatus("🎉 StudyBot Connected to Wi-Fi!<br>IP: <b>" + ip + "</b><br><br><a href='http://" + ip + "' target='_blank' style='color:#38bdf8;'>👉 Click Here to Open Parental Dashboard</a>", "success");
+    } else if (data === "STATUS:FAILED") {
+      setStatus("Wi-Fi Connection Failed. Check password.", "error");
+    }
+  }
+
+  async function scanWifi() {
+    if (!rxCharacteristic) return;
+    setStatus("Scanning nearby Wi-Fi networks...", "info");
+    const cmd = new TextEncoder().encode("SCAN_WIFI");
+    await rxCharacteristic.writeValue(cmd);
+  }
+
+  async function sendCredentials() {
+    const ssid = document.getElementById("wifiDropdown").value;
+    const password = document.getElementById("wifiPassword").value;
+    const mood = document.getElementById("moodDropdown").value;
+
+    if (!ssid) {
+      alert("Please select a Wi-Fi network!");
+      return;
+    }
+
+    setStatus("Sending Wi-Fi & Mood to StudyBot...", "info");
+    
+    // 1. Send Wi-Fi
+    const wifiPayload = JSON.stringify({ ssid: ssid, password: password });
+    await rxCharacteristic.writeValue(new TextEncoder().encode(wifiPayload));
+
+    // 2. Send Mood
+    setTimeout(async () => {
+      const moodPayload = JSON.stringify({ mood: mood });
+      await rxCharacteristic.writeValue(new TextEncoder().encode(moodPayload));
+      setStatus("Connecting to " + ssid + "... Please wait.", "info");
+    }, 500);
+  }
+</script>
+</body>
+</html>
