@@ -123,7 +123,7 @@
       }
     } else if (data.startsWith("STATUS:CONNECTED:")) {
       const ip = data.split(":")[2];
-      setStatus("🎉 StudyBot Connected to Wi-Fi!<br>IP: <b>" + ip + "</b><br><br><a href='http://" + ip + "' target='_blank' style='color:#38bdf8;'>👉 Click Here to Open Parental Dashboard</a>", "[...]"
+      setStatus("🎉 StudyBot Connected to Wi-Fi!<br>IP: <b>" + ip + "</b><br><br><a href='http://" + ip + "' target='_blank' style='color:#38bdf8;'>👉 Click Here to Open Parental Dashboard</a>", "success");
     } else if (data === "STATUS:FAILED") {
       setStatus("Wi-Fi Connection Failed. Check password.", "error");
     }
